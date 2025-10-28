@@ -1,27 +1,19 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
-PROJECT(Project_Name
-        VERSION 1.0
-        DESCRIPTION "Description" 
-        LANGUAGES CXX       
+project(PGDCPU
+    VERSION 1.0
+    DESCRIPTION "NA"
+    LANGUAGES CXX
 )
 
-INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/include) # for header files if any
-SET(SOURCES ${CMAKE_SOURCE_DIR}/src/)# source files of the project
+add_executable(pgdcpu
+    src/main.cpp
+    src/funcs.cpp
+)
 
+target_include_directories(pgdcpu
+    PUBLIC
+        ${CMAKE_SOURCE_DIR}/include
+)
 
-
-
-
-
-
-ADD_EXECUTABLE(Project_Name ${SOURCES}/main.cpp)
-
-
-
-
-
-
-
-
-
+target_compile_features(pgdcpu PUBLIC cxx_std_17)
