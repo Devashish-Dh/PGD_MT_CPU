@@ -1,8 +1,11 @@
 #include "funcs.h"
+#include <fstream>
 
+#include <random>
 #include <iostream>
 #include "Eigen/Core"
 using namespace Eigen;
+
 
 //const double RANGE_OF_MAGNITUDE = 1000000000000000.0; //10^15 currently
 const double RANGE_OF_MAGNITUDE = 1000;
@@ -96,4 +99,95 @@ modelWeights update_weights(modelWeights& myModel, modelWeights& gradient_from_c
 
 
 
-// IO funcs etc
+// IO, Utilities funcs. etc...
+
+// Simple function w0 * x0 + b_intercept = y
+// Generate synthetic 1D linear data with Gaussian noise
+void generate_linear_data(const std::string& filename,
+                          size_t N,
+                          double true_w0,
+                          double true_b,
+                          double noise_std,
+                          bool binary)
+{
+    std::mt19937_64 rng(42);  // fixed seed for reproducibility
+    std::uniform_real_distribution<double> x_dist(-10.0, 10.0);
+    std::normal_distribution<double> noise(0.0, noise_std);
+
+    std::ofstream fout;
+    if (binary)
+        fout.open(filename, std::ios::binary);
+    else
+        fout.open(filename);
+
+    if (!fout.is_open()) {
+        std::cerr << "Error: cannot open " << filename << "\n";
+        return;
+    }
+
+    const size_t CHUNK_SIZE = 1'000'000; // generate 1M at a time
+    std::vector<double> buffer;
+    buffer.reserve(CHUNK_SIZE * 2); // (x, y)
+
+    size_t written = 0;
+    while (written < N) {
+        buffer.clear();
+        size_t n = std::min(CHUNK_SIZE, N - written);
+        for (size_t i = 0; i < n; ++i) {
+            double x0 = x_dist(rng);
+            double y  = true_w0 * x0 + true_b + noise(rng);
+            if (binary) {
+                buffer.push_back(x0);
+                buffer.push_back(y);
+            } else {
+                fout << x0 << " " << y << "\n";
+            }
+        }
+
+        if (binary)
+            fout.write(reinterpret_cast<char*>(buffer.data()),
+                       buffer.size() * sizeof(double));
+
+        written += n;
+        std::cout << "\rGenerated " << written << " / " << N << " samples..." << std::flush;
+    }
+
+    fout.close();
+    std::cout << "\nDone. Wrote " << N << " samples → " << filename << std::endl;
+}
+
+
+// Read the full binary dataset into Eigen matrix
+bool load_full_dataset_binary(const std::string& filename, fullDataset& data)
+{
+    std::ifstream fin(filename, std::ios::binary | std::ios::ate);
+    if (!fin.is_open()) {
+        std::cerr << "Error: cannot open file " << filename << std::endl;
+        return false;
+    }
+
+    std::streamsize file_size = fin.tellg();
+    fin.seekg(0, std::ios::beg);
+
+    const size_t NUM_DOUBLES_PER_POINT = 2; // x0, y
+    const size_t total_doubles = file_size / sizeof(double);
+    const size_t num_points = total_doubles / NUM_DOUBLES_PER_POINT;
+
+    std::vector<double> buffer(total_doubles);
+    fin.read(reinterpret_cast<char*>(buffer.data()), file_size);
+    fin.close();
+
+    data.resize(num_points, NUM_FEATURES + 2); // rows × cols (x0, bias, y)
+    
+    for (size_t i = 0; i < num_points; ++i) {
+        data(i, 0) = buffer[i * 2 + 0]; // x₀
+        data(i, 1) = 1.0;               // bias
+        data(i, 2) = buffer[i * 2 + 1]; // y_actual
+    }
+
+    std::cout << "Loaded " << num_points
+              << " samples (" << (file_size / (1024.0 * 1024.0 * 1024.0))
+              << " GB) into memory.\n";
+
+    return true;
+}

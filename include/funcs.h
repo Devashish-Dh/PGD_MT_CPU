@@ -1,7 +1,11 @@
+#include <fstream>
 #include<vector>
 #include <string>
+#include<iostream>
 #include "Eigen/Core"
 using namespace Eigen;
+
+
 
 
 #ifndef FUNCS_FILE // Check if the guard macro is *not* defined
@@ -24,11 +28,15 @@ const size_t chunk_size = 512; // for batch gradient calculation...
 // the Rosenbrock function 
 //a D dimensional func:
 
-typedef Matrix<double, 1, (NUM_FEATURES+2)> dataPoint; // x_i's, then bias/intercept = 1, then y_actual (y_actual will be uninitialized in case of new data points / when predicting...)
+typedef Matrix<double, 1, (NUM_FEATURES+2)> dataPoint; // x_i's, then bias/intercept = 1, then y_actual (y_actual will be uninitialized in case of new data points / IF predicting...)
 
 typedef Matrix<double, 1, (NUM_FEATURES+1)> modelWeights; // w_i's and b_intercept
 
 typedef Matrix<double, chunk_size, (NUM_FEATURES+2)> chunk; // +1 for the bais/intercept , +1 for the target
+
+//for holding ALL THE DATA!
+typedef Matrix<double, Dynamic, (NUM_FEATURES + 2)> fullDataset;
+
 
 double predict(const modelWeights& myModel, const dataPoint& myPoint);
 
@@ -47,6 +55,17 @@ modelWeights update_weights(modelWeights& myModel, modelWeights& gradient_from_c
 
 //IO funcs etc
 
+
+// Generates synthetic linear data with Gaussian noise and saves to a text file
+void generate_linear_data(const std::string& filename,
+                                size_t N,
+                                double true_w0,
+                                double true_b,
+                                double noise_std,
+                                bool binary = true);
+
+// Reads one chunk of data (x, y_actual) pairs from file into Eigen matrix
+bool load_full_dataset_binary(const std::string& filename, fullDataset& data);
 
 
 
