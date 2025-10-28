@@ -1,2 +1,2 @@
-# PGD_MT_-CPU-
+# PGD_MT_CPU
 Implementing a simple multi-threaded parallelized Gradient Descent on simple functions to learn a bit more about races, atomics, the tools around this stuff etc...
