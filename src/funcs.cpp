@@ -91,10 +91,37 @@ modelWeights calculate_local_gradient(const modelWeights& myModel, const chunk& 
     return gradient_row;
 }
 
-modelWeights update_weights(modelWeights& myModel, modelWeights& gradient_from_chunk, double rate)
+modelWeights update_weights(modelWeights& myModel, modelWeights& gradient, double rate)
 {
-    myModel += rate * (-1) *gradient_from_chunk;
+    myModel += rate * (-1) *gradient;
     return myModel;
+}
+
+void compute_chunk_graidents(modelWeights& myModel,fullDataset& myFullData,size_t size_of_chunk)
+{
+    const size_t total_rows = myFullData.rows();
+    const size_t NChunks = total_rows / size_of_chunk;
+    const size_t remainder = total_rows % size_of_chunk;
+
+    // Process all full chunks
+    for (size_t i = 0; i < NChunks; ++i)
+    {
+        auto dataChunk = myFullData.middleRows(i * size_of_chunk, size_of_chunk);
+        modelWeights grad = calculate_local_gradient(myModel, dataChunk);
+
+        update_weights(myModel, grad, ALPHA);
+    }
+
+    // Process remaining (partial) chunk if any
+    if (remainder > 0)
+    {
+        auto lastChunk = myFullData.bottomRows(remainder);
+        modelWeights grad = calculate_local_gradient(myModel, lastChunk);
+
+        update_weights(myModel, grad, ALPHA);
+    }
+
+    return;
 }
 
 
@@ -177,12 +204,15 @@ bool load_full_dataset_binary(const std::string& filename, fullDataset& data)
     fin.read(reinterpret_cast<char*>(buffer.data()), file_size);
     fin.close();
 
-    data.resize(num_points, NUM_FEATURES + 2); // rows × cols (x0, bias, y)
+    data.resize(num_points, NUM_FEATURES + 2); // rows × cols (x0, bias, y_actual)
     
     for (size_t i = 0; i < num_points; ++i) {
         data(i, 0) = buffer[i * 2 + 0]; // x₀
         data(i, 1) = 1.0;               // bias
         data(i, 2) = buffer[i * 2 + 1]; // y_actual
+        
+
+        //std::cout << "\rRead " << i << " / " << num_points << " points..." << std::flush;
     }
 
     std::cout << "Loaded " << num_points

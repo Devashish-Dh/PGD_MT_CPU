@@ -14,13 +14,13 @@ using namespace Eigen;
 
 
 
-const size_t NUM_FEATURES = 2;    // SLR case
+const size_t NUM_FEATURES = 1;    // SLR case
 //const size_t NUM_FEATURES = 20; // MLR case
 
 //the learning rate alpha?
-const double ALPHA = 0.1;
+const double ALPHA = 0.01;
 
-const size_t chunk_size = 512; // for batch gradient calculation...
+const size_t chunk_size = 8192; // for batch gradient calculation...
 
 
 //to try:
@@ -32,7 +32,7 @@ typedef Matrix<double, 1, (NUM_FEATURES+2)> dataPoint; // x_i's, then bias/inter
 
 typedef Matrix<double, 1, (NUM_FEATURES+1)> modelWeights; // w_i's and b_intercept
 
-typedef Matrix<double, chunk_size, (NUM_FEATURES+2)> chunk; // +1 for the bais/intercept , +1 for the target
+typedef Matrix<double, Dynamic, (NUM_FEATURES+2)> chunk; // +1 for the bais/intercept , +1 for the target
 
 //for holding ALL THE DATA!
 typedef Matrix<double, Dynamic, (NUM_FEATURES + 2)> fullDataset;
@@ -46,7 +46,9 @@ modelWeights calculate_gradient_one_point(const modelWeights& myModel, const dat
 
 modelWeights calculate_local_gradient(const modelWeights& myModel, const chunk& dataChunk);
 
-modelWeights update_weights(modelWeights& myModel, modelWeights& gradient_from_chunk, double rate = ALPHA);
+modelWeights update_weights(modelWeights& myModel, modelWeights& gradient, double rate = ALPHA);
+
+void compute_chunk_graidents(modelWeights& myModel,fullDataset& myFullData,size_t size_of_chunk = chunk_size);
 
 // ... content of the header file (declarations, etc.) ...
 
