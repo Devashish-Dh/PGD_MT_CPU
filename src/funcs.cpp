@@ -1,11 +1,13 @@
 #include "funcs.h"
 #include <fstream>
-
 #include <random>
+
 #include <iostream>
+
 #include "Eigen/Core"
 using namespace Eigen;
-
+#include <thread>
+#include<mutex>
 
 //const double RANGE_OF_MAGNITUDE = 1000000000000000.0; //10^15 currently
 const double RANGE_OF_MAGNITUDE = 1000;
@@ -91,12 +93,14 @@ modelWeights calculate_local_gradient(const modelWeights& myModel, const chunk& 
     return gradient_row;
 }
 
-modelWeights update_weights(modelWeights& myModel, modelWeights& gradient, double rate)
+void update_weights(modelWeights& myModel, modelWeights& gradient, double rate)
 {
     myModel += rate * (-1) *gradient;
-    return myModel;
+    return;
 }
 
+
+//for sequential ver
 void compute_chunk_graidents(modelWeights& myModel,fullDataset& myFullData,size_t size_of_chunk)
 {
     const size_t total_rows = myFullData.rows();
@@ -123,6 +127,105 @@ void compute_chunk_graidents(modelWeights& myModel,fullDataset& myFullData,size_
 
     return;
 }
+
+
+// the multithreded ver funcs:
+
+void update_locked_weights( std::vector<modelWeights>& buffer,
+                            std::mutex& m,
+                            modelWeights& myModel, 
+                            modelWeights& displacement, 
+                            size_t n_threads
+                        )
+{
+
+    //m.lock();
+    std::lock_guard<std::mutex> lock(m);
+
+    myModel += double((1.0/n_threads))*displacement;
+
+    log_weights_into_buffer(buffer,myModel);
+
+    //m.unlock();
+}
+
+//func each thread will be executing: (using locks)
+void batch_compute( std::vector<modelWeights>& buffer,
+                    std::mutex& m,
+                    modelWeights& myModel,
+                    fullDataset& myFullData,
+                    size_t size_of_chunk,
+                    size_t staleness_var,
+                    size_t n_threads
+                    )
+{   
+    std::cout << "Thread ID: " << std::this_thread::get_id() << std::endl;
+
+    const size_t total_rows = myFullData.rows();
+    const size_t NChunks = total_rows / size_of_chunk;
+    const size_t remainder = total_rows % size_of_chunk;
+
+    modelWeights displacement_calc;
+    modelWeights initial_weights = myModel;
+    modelWeights batch_weights = initial_weights;
+
+
+    size_t count = 0;
+
+    // Process all full chunks
+    for (size_t i = 0; i < NChunks; ++i)
+    {
+        auto dataChunk = myFullData.middleRows(i * size_of_chunk, size_of_chunk);
+        modelWeights grad = calculate_local_gradient(batch_weights, dataChunk);
+
+        update_weights(batch_weights, grad, ALPHA);
+
+        count++;
+
+        if(count == staleness_var)
+        {
+            displacement_calc = batch_weights - initial_weights;
+            update_locked_weights(buffer,m,myModel,displacement_calc,n_threads);
+            batch_weights = myModel;
+            initial_weights = batch_weights;
+            count = 0;
+        }
+            
+
+    }
+
+    // Process remaining (partial) chunk if any
+    if (remainder > 0)
+    {
+        auto lastChunk = myFullData.bottomRows(remainder);
+        modelWeights grad = calculate_local_gradient(batch_weights, lastChunk);
+        
+        update_weights(batch_weights, grad, ALPHA);
+
+        displacement_calc = batch_weights - initial_weights;
+        
+        update_locked_weights(buffer,m,myModel,displacement_calc,n_threads);
+    }
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -220,4 +323,34 @@ bool load_full_dataset_binary(const std::string& filename, fullDataset& data)
               << " GB) into memory.\n";
 
     return true;
+}
+
+
+// the logging func:
+void log_weights_into_buffer(std::vector<modelWeights>& buffer,
+                             const modelWeights& model
+                                )
+{
+    buffer.push_back(model);
+}
+
+
+
+//write to text file : 
+void dump_weight_log_to_file(const std::string& filename,
+                             const std::vector<modelWeights>& buffer)
+{
+    std::ofstream fout(filename);
+    if (!fout.is_open()) {
+        std::cerr << "Error opening " << filename << "\n";
+        return;
+    }
+
+    for (const auto& w : buffer) {
+        for (int i = 0; i < w.size(); ++i) {
+            fout << w(i);
+            if (i < w.size() - 1) fout << ",";
+        }
+        fout << "\n";
+    }
 }
