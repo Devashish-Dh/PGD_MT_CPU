@@ -1,0 +1,67 @@
+ved@DTG:~/Desktop/the_project/PGD_MT_CPU/build$ ./pgdcpu_multi_cas 
+
+Loaded 200000000 samples (2.98023 GB) into memory.
+Data read took:41.0489 seconds.
+Dataset shape: 200000000 x 3
+Number of concurrent threads supported by hardware: 8
+Thread ID: 133407213967040 running...
+Thread ID: 133407205574336 running...
+[Thread 133407213967040] finished in 4.41396 seconds.
+Thread ID: 133407813969600 running...
+[Thread 133407205574336] finished in 4.82352 seconds.
+Thread ID: 133407805576896 running...
+[Thread 133407813969600] finished in 4.66387 seconds.
+Thread ID: 133407797184192 running...
+[Thread 133407805576896] finished in 4.2941 seconds.
+Thread ID: 133407788791488 running...
+[Thread 133407797184192] finished in 4.24676 seconds.
+Thread ID: 133407780398784 running...
+[Thread 133407788791488] finished in 4.4714 seconds.
+Thread ID: 133407772006080 running...
+[Thread 133407780398784] finished in 4.27744 seconds.
+[Thread 133407772006080] finished in 3.99603 seconds.
+All threads finished.
+w_0_calc: 7.49414 b: 3.13633
+parallel_computations took:22.1818 seconds.
+
+
+
+
+
+ved@DTG:~/Desktop/the_project/PGD_MT_CPU/build$ ./pgdcpu_multi_lock 
+
+Loaded 200000000 samples (2.98023 GB) into memory.
+Data read took:43.2443 seconds.
+Dataset shape: 200000000 x 3
+Number of concurrent threads supported by hardware: 8
+Thread ID: 125016840165056 running...
+Thread ID: 125016831772352 running...
+[Thread 125016840165056] finished in 4.89972 seconds.
+Thread ID: 125017440167616 running...
+[Thread 125016831772352] finished in 5.19227 seconds.
+Thread ID: 125017431774912 running...
+[Thread 125017440167616] finished in 5.02056 seconds.
+Thread ID: 125017423382208 running...
+Thread ID: 125017414989504 running...
+[Thread 125017431774912] finished in 5.71772 seconds.
+[Thread 125017423382208] finished in 5.04257 seconds.
+Thread ID: 125018040170176 running...
+[Thread 125017414989504] finished in 5.14971 seconds.
+Thread ID: 125018031777472 running...
+[Thread 125018040170176] finished in 4.63619 seconds.
+[Thread 125018031777472] finished in 4.02111 seconds.
+All threads finished.
+w_0_calc: 7.49452 b: 3.13637
+dumped weight updates to text file!
+parallel_computations took:23.9874 seconds.
+
+
+
+ved@DTG:~/Desktop/the_project/PGD_MT_CPU/build$ ./pgdcpu_seq 
+
+Loaded 200000000 samples (2.98023 GB) into memory.
+Data read took:43.4805 seconds.
+Dataset shape: 200000000 x 3
+w_0_calc: 7.48579 b: 3.13462
+seq_computations took:39.024 seconds.
+

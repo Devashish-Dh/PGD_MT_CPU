@@ -8,6 +8,9 @@
 using namespace Eigen;
 #include <thread>
 #include<mutex>
+#include <chrono>  // for high_resolution_clock
+#include <atomic>
+
 
 //const double RANGE_OF_MAGNITUDE = 1000000000000000.0; //10^15 currently
 const double RANGE_OF_MAGNITUDE = 1000;
@@ -131,6 +134,7 @@ void compute_chunk_graidents(modelWeights& myModel,fullDataset& myFullData,size_
 
 // the multithreded ver funcs:
 
+//using lock:
 void update_locked_weights( std::vector<modelWeights>& buffer,
                             std::mutex& m,
                             modelWeights& myModel, 
@@ -140,16 +144,26 @@ void update_locked_weights( std::vector<modelWeights>& buffer,
 {
 
     //m.lock();
+
     std::lock_guard<std::mutex> lock(m);
-
     myModel += double((1.0/n_threads))*displacement;
-
+    
     log_weights_into_buffer(buffer,myModel);
 
     //m.unlock();
 }
 
-//func each thread will be executing: (using locks)
+
+
+
+
+
+
+
+
+
+
+//func each thread will be executing: (using LOCK)
 void batch_compute( std::vector<modelWeights>& buffer,
                     std::mutex& m,
                     modelWeights& myModel,
@@ -159,18 +173,29 @@ void batch_compute( std::vector<modelWeights>& buffer,
                     size_t n_threads
                     )
 {   
-    std::cout << "Thread ID: " << std::this_thread::get_id() << std::endl;
+
+    std::thread::id Tid = std::this_thread::get_id();
+    std::cout << "Thread ID: " << Tid << " running...\n";
 
     const size_t total_rows = myFullData.rows();
     const size_t NChunks = total_rows / size_of_chunk;
     const size_t remainder = total_rows % size_of_chunk;
 
-    modelWeights displacement_calc;
-    modelWeights initial_weights = myModel;
-    modelWeights batch_weights = initial_weights;
+    modelWeights displacement_calc = modelWeights::Zero();
+    modelWeights initial_weights = modelWeights::Zero();
+    modelWeights batch_weights   = modelWeights::Zero();
+
+    {
+    std::lock_guard<std::mutex> lock(m);
+    initial_weights = myModel;
+    }
+    
+    batch_weights = initial_weights;
 
 
     size_t count = 0;
+
+    auto t_start = std::chrono::high_resolution_clock::now();
 
     // Process all full chunks
     for (size_t i = 0; i < NChunks; ++i)
@@ -186,7 +211,12 @@ void batch_compute( std::vector<modelWeights>& buffer,
         {
             displacement_calc = batch_weights - initial_weights;
             update_locked_weights(buffer,m,myModel,displacement_calc,n_threads);
-            batch_weights = myModel;
+            
+            {
+            std::lock_guard<std::mutex> lock(m);
+            batch_weights = myModel;    // <-protected read!
+            }
+
             initial_weights = batch_weights;
             count = 0;
         }
@@ -207,8 +237,130 @@ void batch_compute( std::vector<modelWeights>& buffer,
         update_locked_weights(buffer,m,myModel,displacement_calc,n_threads);
     }
 
+    auto t_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = t_end - t_start;
+    std::cout << "[Thread " << Tid << "] finished in " << elapsed.count() << " seconds.\n";
+
+
 
 }
+
+
+
+
+
+
+
+
+//using CAS:
+
+void update_weights_CAS(  std::vector<std::atomic<double>>& weights, 
+                            modelWeights& displacement, 
+                            size_t n_threads
+                        )
+{
+    for (size_t i = 0; i < weights.size(); ++i)
+    {
+        double delta = double((1.0/n_threads))*displacement(0, i);
+
+        double old_val = weights[i].load(std::memory_order_relaxed);
+        
+        while (true) {
+            double new_val = old_val + delta;
+            if (weights[i].compare_exchange_weak(
+                    old_val, new_val,
+                    std::memory_order_acq_rel,
+                    std::memory_order_relaxed))
+                break; 
+            // on failure, old_val is updated automatically, so loop recomputes
+        }
+    }
+
+}
+
+
+
+
+void batch_compute_using_CAS( 
+                    std::vector<std::atomic<double>>& weights,
+                    fullDataset& myFullData,
+                    size_t size_of_chunk,
+                    size_t staleness_var,
+                    size_t n_threads
+                    )
+{   
+
+    std::thread::id Tid = std::this_thread::get_id();
+    std::cout << "Thread ID: " << Tid << " running...\n";
+
+    const size_t total_rows = myFullData.rows();
+    const size_t NChunks = total_rows / size_of_chunk;
+    const size_t remainder = total_rows % size_of_chunk;
+
+    modelWeights displacement_calc = modelWeights::Zero();
+    modelWeights initial_weights = modelWeights::Zero();
+    modelWeights batch_weights   = modelWeights::Zero();
+
+    std::atomic_thread_fence(std::memory_order_acquire);
+    // Take snapshot of global weights
+    for (size_t i = 0; i < initial_weights.size(); ++i) {
+        double val = weights[i].load(std::memory_order_acquire);
+        initial_weights(0, i) = val;
+        batch_weights(0, i) = val;
+    }
+
+    size_t count = 0;
+
+    auto t_start = std::chrono::high_resolution_clock::now();
+
+    // Process all full chunks
+    for (size_t i = 0; i < NChunks; ++i)
+    {
+        auto dataChunk = myFullData.middleRows(i * size_of_chunk, size_of_chunk);
+        modelWeights grad = calculate_local_gradient(batch_weights, dataChunk);
+
+        update_weights(batch_weights, grad, ALPHA);
+
+        count++;
+
+        if(count == staleness_var)
+        {
+            displacement_calc = batch_weights - initial_weights;
+            
+            update_weights_CAS(weights,displacement_calc,n_threads);
+
+            for (size_t i = 0; i < initial_weights.size(); ++i) {
+                double val = weights[i].load(std::memory_order_acquire);
+                initial_weights(0, i) = val;
+                batch_weights(0, i) = val;
+            }            
+            count = 0;
+        }
+            
+
+    }
+
+    // Process remaining (partial) chunk if any
+    if (remainder > 0)
+    {
+        auto lastChunk = myFullData.bottomRows(remainder);
+        modelWeights grad = calculate_local_gradient(batch_weights, lastChunk);
+        
+        update_weights(batch_weights, grad, ALPHA);
+
+        displacement_calc = batch_weights - initial_weights;
+        
+        update_weights_CAS(weights,displacement_calc,n_threads);
+    }
+
+    auto t_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = t_end - t_start;
+    std::cout << "[Thread " << Tid << "] finished in " << elapsed.count() << " seconds.\n";
+
+}
+
+
+
 
 
 
@@ -287,8 +439,14 @@ void generate_linear_data(const std::string& filename,
 }
 
 
+
+
+
 // Read the full binary dataset into Eigen matrix
-bool load_full_dataset_binary(const std::string& filename, fullDataset& data)
+// Read up to `max_points_to_read` samples from the binary dataset into Eigen matrix
+bool load_full_dataset_binary(const std::string& filename,
+                              fullDataset& data,
+                              size_t max_points_to_read)
 {
     std::ifstream fin(filename, std::ios::binary | std::ios::ate);
     if (!fin.is_open()) {
@@ -299,27 +457,34 @@ bool load_full_dataset_binary(const std::string& filename, fullDataset& data)
     std::streamsize file_size = fin.tellg();
     fin.seekg(0, std::ios::beg);
 
-    const size_t NUM_DOUBLES_PER_POINT = 2; // x0, y
+    const size_t NUM_DOUBLES_PER_POINT = 2; // (x0, y)
     const size_t total_doubles = file_size / sizeof(double);
-    const size_t num_points = total_doubles / NUM_DOUBLES_PER_POINT;
+    const size_t num_points_in_file = total_doubles / NUM_DOUBLES_PER_POINT;
 
-    std::vector<double> buffer(total_doubles);
-    fin.read(reinterpret_cast<char*>(buffer.data()), file_size);
+
+
+    // Determine how many points to read
+    size_t num_points_to_read = std::min(max_points_to_read, num_points_in_file); // modify when actually using.. written for verification 
+    
+    size_t doubles_to_read = num_points_to_read * NUM_DOUBLES_PER_POINT;
+
+
+
+    std::vector<double> buffer(doubles_to_read);
+    fin.read(reinterpret_cast<char*>(buffer.data()), doubles_to_read * sizeof(double));
     fin.close();
 
-    data.resize(num_points, NUM_FEATURES + 2); // rows × cols (x0, bias, y_actual)
-    
-    for (size_t i = 0; i < num_points; ++i) {
-        data(i, 0) = buffer[i * 2 + 0]; // x₀
-        data(i, 1) = 1.0;               // bias
-        data(i, 2) = buffer[i * 2 + 1]; // y_actual
-        
+    data.resize(num_points_to_read, NUM_FEATURES + 2); // rows × cols (x0, bias, y_actual)
 
-        //std::cout << "\rRead " << i << " / " << num_points << " points..." << std::flush;
+    for (size_t i = 0; i < num_points_to_read; ++i) {
+        data(i, 0) = buffer[i * 2 + 0]; // x₀
+        data(i, 1) = 1.0;               // bias term
+        data(i, 2) = buffer[i * 2 + 1]; // y_actual
     }
 
-    std::cout << "Loaded " << num_points
-              << " samples (" << (file_size / (1024.0 * 1024.0 * 1024.0))
+    double gb_loaded = (doubles_to_read * sizeof(double)) / (1024.0 * 1024.0 * 1024.0);
+    std::cout << "Loaded " << num_points_to_read
+              << " samples (" << gb_loaded
               << " GB) into memory.\n";
 
     return true;

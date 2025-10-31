@@ -6,6 +6,9 @@
 using namespace Eigen;
 #include <thread>
 #include <mutex>
+#include <chrono>  // for high_resolution_clock
+#include <atomic>
+
 
 
 #ifndef FUNCS_FILE // Check if the guard macro is *not* defined
@@ -74,9 +77,26 @@ void batch_compute( std::vector<modelWeights>& buffer,
                     );
 
 
+//using CAS:
+void update_weights_CAS(  std::vector<std::atomic<double>>& weights, 
+                            modelWeights& displacement, 
+                            size_t n_threads
+                        );
+//using CAS:
+void batch_compute_using_CAS( 
+                    std::vector<std::atomic<double>>& weights,
+                    fullDataset& myFullData,
+                    size_t size_of_chunk,
+                    size_t staleness_var,
+                    size_t n_threads
+                    );
+                    
 
 
 // ... content of the header file (declarations, etc.) ...
+
+
+
 
 
 
@@ -93,7 +113,9 @@ void generate_linear_data(const std::string& filename,
                                 bool binary = true);
 
 // Reads one chunk of data (x, y_actual) pairs from file into Eigen matrix
-bool load_full_dataset_binary(const std::string& filename, fullDataset& data);
+bool load_full_dataset_binary(const std::string& filename,
+                              fullDataset& data,
+                              size_t max_points_to_read);
 
 //the weights logging func
 void log_weights_into_buffer(std::vector<modelWeights>& buffer,
@@ -107,16 +129,5 @@ void dump_weight_log_to_file(const std::string& filename,
 
 
 
-
-
 #endif
-
-
-
-
-
-
-
-
-
 
